@@ -1,0 +1,116 @@
+// Prisma Schema for CareCircle - Catalyst Hackathon Elderly Care Platform
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  PRIMARY_CAREGIVER
+  FAMILY_MEMBER
+  ELDERLY_USER
+}
+
+enum DoseStatus {
+  SCHEDULED
+  DUE
+  TAKEN
+  SKIPPED
+  MISSED
+}
+
+model User {
+  id            String             @id @default(cuid())
+  email         String             @unique
+  passwordHash  String
+  name          String
+  role          Role               @default(PRIMARY_CAREGIVER)
+  phone         String?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  memberships   CareCircleMember[]
+  loggedDoses   DoseLog[]          @relation("DoseLoggedByUser")
+}
+
+model CareCircle {
+  id             String             @id @default(cuid())
+  elderName      String
+  elderDob       DateTime?
+  elderPinHash   String             // Salted bcrypt hash of senior PIN
+  inviteCode     String             @unique // e.g. "CARE-8291"
+  emergencyPhone String?
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  members        CareCircleMember[]
+  medications    Medication[]
+  appointments   Appointment[]
+  alerts         NotificationLog[]
+}
+
+model CareCircleMember {
+  id                String     @id @default(cuid())
+  circleId          String
+  userId            String
+  relationToElder   String     // e.g. "Daughter", "Nurse", "Son"
+  notifyOnMissed    Boolean    @default(true)
+  notifyDailyDigest Boolean    @default(true)
+  circle            CareCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  user              User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([circleId, userId])
+}
+
+model Medication {
+  id              String      @id @default(cuid())
+  circleId        String
+  name            String      // e.g. "Metformin"
+  dosage          String      // e.g. "500 mg"
+  instructions    String?     // e.g. "Take with food"
+  timesOfDay      String[]    // e.g. ["08:00", "20:00"]
+  currentSupply   Int         @default(30)
+  refillThreshold Int         @default(5)
+  active          Boolean     @default(true)
+  createdAt       DateTime    @default(now())
+  circle          CareCircle  @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  doseLogs        DoseLog[]
+}
+
+model DoseLog {
+  id            String      @id @default(cuid())
+  medicationId  String
+  scheduledTime DateTime
+  takenAt       DateTime?
+  status        DoseStatus  @default(SCHEDULED)
+  notes         String?
+  loggedById    String?
+  medication    Medication  @relation(fields: [medicationId], references: [id], onDelete: Cascade)
+  loggedBy      User?       @relation("DoseLoggedByUser", fields: [loggedById], references: [id])
+
+  @@index([scheduledTime, status])
+}
+
+model Appointment {
+  id              String      @id @default(cuid())
+  circleId        String
+  title           String      // e.g. "Cardiology Consultation"
+  doctorName      String
+  location        String
+  appointmentTime DateTime
+  reminderSent    Boolean     @default(false)
+  notes           String?
+  createdAt       DateTime    @default(now())
+  circle          CareCircle  @relation(fields: [circleId], references: [id], onDelete: Cascade)
+}
+
+model NotificationLog {
+  id        String     @id @default(cuid())
+  circleId  String
+  recipient String
+  type      String     // "MISSED_DOSE", "REFILL_ALERT", "APPOINTMENT_REMINDER", "EMERGENCY_SOS"
+  sentAt    DateTime   @default(now())
+  status    String     // "SENT", "FAILED"
+  circle    CareCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+}
